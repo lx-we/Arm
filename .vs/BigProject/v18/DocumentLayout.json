@@ -1,0 +1,89 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|d:\\ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\hmicode\\bigproject\\bigproject\\devices\\arm\\armcontrl.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|solutionrelative:bigproject\\devices\\arm\\armcontrl.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|d:\\ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\hmicode\\bigproject\\bigproject\\devices\\arm\\kinematic\\dof6kinematic.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|solutionrelative:bigproject\\devices\\arm\\kinematic\\dof6kinematic.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\bigproject\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|solutionrelative:bigproject\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\bigproject\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|solutionrelative:bigproject\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "ArmContrl.cs",
+              "DocumentMoniker": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\Devices\\Arm\\ArmContrl.cs",
+              "RelativeDocumentMoniker": "BigProject\\Devices\\Arm\\ArmContrl.cs",
+              "ToolTip": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\Devices\\Arm\\ArmContrl.cs",
+              "RelativeToolTip": "BigProject\\Devices\\Arm\\ArmContrl.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-07T03:21:53.057Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Dof6kinematic.cs",
+              "DocumentMoniker": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\Devices\\Arm\\Kinematic\\Dof6kinematic.cs",
+              "RelativeDocumentMoniker": "BigProject\\Devices\\Arm\\Kinematic\\Dof6kinematic.cs",
+              "ToolTip": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\Devices\\Arm\\Kinematic\\Dof6kinematic.cs",
+              "RelativeToolTip": "BigProject\\Devices\\Arm\\Kinematic\\Dof6kinematic.cs",
+              "ViewState": "AgIAAGIAAAAAAAAAAAAUwG0AAAACAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-06T04:23:04.769Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "MainWindow.xaml.cs",
+              "DocumentMoniker": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\MainWindow.xaml.cs",
+              "RelativeDocumentMoniker": "BigProject\\MainWindow.xaml.cs",
+              "ToolTip": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\MainWindow.xaml.cs",
+              "RelativeToolTip": "BigProject\\MainWindow.xaml.cs",
+              "ViewState": "AgIAAG0AAAAAAAAAAAAywLQBAAAMAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-06T04:19:35.015Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "MainWindow.xaml",
+              "DocumentMoniker": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\MainWindow.xaml",
+              "RelativeDocumentMoniker": "BigProject\\MainWindow.xaml",
+              "ToolTip": "D:\\Ducument\\mywork\\20260312\u5F53\u524Djyker\u7684\u4ED3\u5E93\\jyker\\HMIcode\\BigProject\\BigProject\\MainWindow.xaml",
+              "RelativeToolTip": "BigProject\\MainWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-05-06T04:19:16.754Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,318 @@
+﻿<rubyer:RubyerWindow x:Class="BigProject.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:BigProject"
+        xmlns:rubyer="http://rubyer.io/winfx/xaml/toolkit"
+        mc:Ignorable="d"
+        TitleHeight="45"
+        Width="1600"
+        Height="900"
+        MinWidth="1280"
+        MinHeight="720"
+        d:DesignWidth="1600"
+        d:DesignHeight="900"
+        WindowStartupLocation="CenterScreen"
+        Title="JYKER" >
+    <rubyer:RubyerWindow.TitleBarContent>
+        <Menu
+   HorizontalAlignment="Right"
+   rubyer:HeaderHelper.Foreground="{DynamicResource WhiteForeground}"
+   rubyer:MenuHelper.IconWidth="30"
+   Foreground="{DynamicResource DefaultForeground}"
+   WindowChrome.IsHitTestVisibleInChrome="True">
+            <MenuItem x:Name="mt_Config" Click="mt_Config_Click">
+                <MenuItem.Header>
+                    <StackPanel rubyer:PanelHelper.Spacing="8"
+                     Orientation="Horizontal"
+                     TextBlock.Foreground="{DynamicResource WhiteForeground}">
+                        <rubyer:Icon Type="Settings2Fill" />
+                        <TextBlock FontSize="16" Text="系统设置" />
+                    </StackPanel>
+                </MenuItem.Header>
+            </MenuItem>
+        </Menu>
+    </rubyer:RubyerWindow.TitleBarContent>
+    <Grid rubyer:GridHelper.ColumnDefinitions="2.4*,1.6*,1*">
+        <!-- 左侧：画面 + 日志 -->
+        <Grid Grid.Column="0" Margin="8,6,4,6" rubyer:GridHelper.RowDefinitions="*,130">
+            <Grid Grid.Row="0">
+                <Image x:Name="ImageBig" Stretch="Uniform"/>
+                <Grid VerticalAlignment="Top" HorizontalAlignment="Left" Panel.ZIndex="3" Margin="4">
+                    <TextBlock FontSize="22" FontWeight="Bold" x:Name="tb_ArmStatusBanner" Text="机械臂：未连接" Foreground="Gray"/>
+                </Grid>
+                <Grid VerticalAlignment="Top" HorizontalAlignment="Right" Panel.ZIndex="3" Margin="4">
+                    <TextBlock FontSize="48" Foreground="Red" x:Name="ResultTextInPic"/>
+                </Grid>
+            </Grid>
+            <GroupBox Grid.Row="1" Header="日志信息" Margin="0,4,0,0">
+                <TextBox BorderThickness="0" x:Name="tbLog" Style="{StaticResource BigTextBox}" FontSize="11" VerticalScrollBarVisibility="Auto"/>
+            </GroupBox>
+        </Grid>
+
+        <!-- 中间：调度 / 夹爪 / 力矩 -->
+        <ScrollViewer Grid.Column="1" Margin="4,6" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <GroupBox Header="点位循环记录" Margin="0,0,0,6">
+                    <DataGrid x:Name="dg_JointRecord" Height="160"
+                              rubyer:ControlHelper.FocusedForegroundBrush="{StaticResource Accent}"
+                              AutoGenerateColumns="False" BorderThickness="1" CanUserAddRows="False"
+                              GridLinesVisibility="All" IsReadOnly="True" SelectionMode="Single">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Width="20" Binding="{Binding IsAjust}" Header="是否检测抓取"/>
+                            <DataGridTextColumn Width="auto" Binding="{Binding J1}" Header="J1" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding J2}" Header="J2" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding J3}" Header="J3" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding J4}" Header="J4" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding J5}" Header="J5" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding J6}" Header="J6" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding X}" Header="X" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding Y}" Header="Y" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding Z}" Header="Z" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding A}" Header="A" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding B}" Header="B" />
+                            <DataGridTextColumn Width="auto" Binding="{Binding C}" Header="C" />
+                            <DataGridTextColumn Visibility="Collapsed" x:Name="AddTime" Binding="{Binding AddTime}" Header="AddTime" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </GroupBox>
+
+                <GroupBox Header="夹爪控制" Margin="0,0,0,6" x:Name="gb_ClawControl" IsEnabled="False">
+                    <Grid rubyer:GridHelper.RowDefinitions="Auto,Auto,Auto" rubyer:GridHelper.ColumnDefinitions="*,*,*,*">
+                        <Button Grid.Column="0" Margin="2" x:Name="bt_ClawHome" Click="bt_ClawHome_Click">夹爪回零</Button>
+                        <Button Grid.Column="1" Margin="2" x:Name="bt_ClawStop" Click="bt_ClawStop_Click">夹爪关闭堵转</Button>
+                        <Button Grid.Column="2" Margin="2" x:Name="bt_ClawLoopStart" Click="bt_ClawLoopStart_Click">开始监视</Button>
+                        <Button Grid.Column="3" Margin="2" x:Name="bt_ClawLoopEnd" IsEnabled="False" Click="bt_ClawLoopEnd_Click">停止监视</Button>
+
+                        <Grid Grid.Row="1" Grid.ColumnSpan="4" Margin="2,6,2,0"
+                              rubyer:GridHelper.ColumnDefinitions="56,*,44,56,*,44">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center">夹角</TextBlock>
+                            <Slider Grid.Column="1" Margin="0,10,0,0" Value="0" x:Name="pg_ClawAngle"
+                                    Minimum="0" Maximum="90"
+                                    ValueChanged="pg_ClawAngle_ValueChanged"
+                                    MouseUp="pg_ClawAngle_MouseUp"/>
+                            <TextBlock Grid.Column="2" x:Name="tb_ClawAngle" VerticalAlignment="Center">0°</TextBlock>
+                            <TextBlock Grid.Column="3" VerticalAlignment="Center">长度</TextBlock>
+                            <ProgressBar Grid.Column="4" Margin="0,12,0,0" Value="0" x:Name="pg_ClawLength"/>
+                            <TextBlock Grid.Column="5" x:Name="tb_ClawLength" VerticalAlignment="Center">0mm</TextBlock>
+                        </Grid>
+
+                        <Grid Grid.Row="2" Grid.ColumnSpan="4" Margin="2,4,2,2"
+                              rubyer:GridHelper.ColumnDefinitions="56,*,44">
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center">受力</TextBlock>
+                            <ProgressBar Grid.Column="1" Margin="0,12,0,0" Value="0" x:Name="pg_ClawPower" Minimum="0" Maximum="2000"/>
+                            <TextBlock Grid.Column="2" x:Name="tb_ClawPower" VerticalAlignment="Center">0</TextBlock>
+                        </Grid>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="货物调度（决策层协议）" Margin="0,0,0,6" x:Name="gb_CargoTask">
+                    <Grid rubyer:GridHelper.RowDefinitions="Auto,26,Auto,26,Auto,26,Auto,26,Auto,26,Auto,26,32"
+                          rubyer:GridHelper.ColumnDefinitions="76,*,*,*,72">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5" Margin="2,0,2,4" TextWrapping="Wrap"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryForeground}"
+                                   Text="LOAD：堆货点→AGV；UNLOAD：AGV→堆货点。示教后保存。"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="2,0" VerticalAlignment="Center">货物数量</TextBlock>
+                        <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="2,0" x:Name="tb_CargoCount" Text="0"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="5" Margin="2,2,2,0" FontWeight="Bold">堆货点</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="2,0" VerticalAlignment="Center">X/Y/Z</TextBlock>
+                        <TextBox Grid.Row="3" Grid.Column="1" Margin="2,0" x:Name="tb_StackX" Text="0"/>
+                        <TextBox Grid.Row="3" Grid.Column="2" Margin="2,0" x:Name="tb_StackY" Text="0"/>
+                        <TextBox Grid.Row="3" Grid.Column="3" Margin="2,0" x:Name="tb_StackZ" Text="0"/>
+                        <Button Grid.Row="3" Grid.Column="4" Margin="2,0" Padding="4,2" x:Name="bt_LoadStackPos" Click="bt_LoadStackPos_Click">取当前</Button>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="5" Margin="2,2,2,0" FontWeight="Bold">AGV 1</TextBlock>
+                        <TextBlock Grid.Row="5" Grid.Column="0" Margin="2,0" VerticalAlignment="Center">X/Y/Z</TextBlock>
+                        <TextBox Grid.Row="5" Grid.Column="1" Margin="2,0" x:Name="tb_Car1X" Text="0"/>
+                        <TextBox Grid.Row="5" Grid.Column="2" Margin="2,0" x:Name="tb_Car1Y" Text="0"/>
+                        <TextBox Grid.Row="5" Grid.Column="3" Margin="2,0" x:Name="tb_Car1Z" Text="0"/>
+                        <Button Grid.Row="5" Grid.Column="4" Margin="2,0" Padding="4,2" x:Name="bt_LoadCar1Pos" Click="bt_LoadCar1Pos_Click">取当前</Button>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="5" Margin="2,2,2,0" FontWeight="Bold">AGV 2</TextBlock>
+                        <TextBlock Grid.Row="7" Grid.Column="0" Margin="2,0" VerticalAlignment="Center">X/Y/Z</TextBlock>
+                        <TextBox Grid.Row="7" Grid.Column="1" Margin="2,0" x:Name="tb_Car2X" Text="0"/>
+                        <TextBox Grid.Row="7" Grid.Column="2" Margin="2,0" x:Name="tb_Car2Y" Text="0"/>
+                        <TextBox Grid.Row="7" Grid.Column="3" Margin="2,0" x:Name="tb_Car2Z" Text="0"/>
+                        <Button Grid.Row="7" Grid.Column="4" Margin="2,0" Padding="4,2" x:Name="bt_LoadCar2Pos" Click="bt_LoadCar2Pos_Click">取当前</Button>
+
+                        <TextBlock Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="5" Margin="2,2,2,0" FontWeight="Bold">AGV 3</TextBlock>
+                        <TextBlock Grid.Row="9" Grid.Column="0" Margin="2,0" VerticalAlignment="Center">X/Y/Z</TextBlock>
+                        <TextBox Grid.Row="9" Grid.Column="1" Margin="2,0" x:Name="tb_Car3X" Text="0"/>
+                        <TextBox Grid.Row="9" Grid.Column="2" Margin="2,0" x:Name="tb_Car3Y" Text="0"/>
+                        <TextBox Grid.Row="9" Grid.Column="3" Margin="2,0" x:Name="tb_Car3Z" Text="0"/>
+                        <Button Grid.Row="9" Grid.Column="4" Margin="2,0" Padding="4,2" x:Name="bt_LoadCar3Pos" Click="bt_LoadCar3Pos_Click">取当前</Button>
+
+                        <TextBlock Grid.Row="10" Grid.Column="0" Grid.ColumnSpan="5" Margin="2,2,2,0" FontWeight="Bold">手动试跑</TextBlock>
+                        <TextBlock Grid.Row="11" Grid.Column="0" Margin="2,0" VerticalAlignment="Center">AGV/任务/数</TextBlock>
+                        <TextBox Grid.Row="11" Grid.Column="1" Margin="2,0" x:Name="tb_ManualAgvId" Text="1"/>
+                        <TextBox Grid.Row="11" Grid.Column="2" Margin="2,0" x:Name="tb_ManualTaskId" Text="100"/>
+                        <TextBox Grid.Row="11" Grid.Column="3" Margin="2,0" x:Name="tb_ManualCargoNum" Text="1"/>
+                        <StackPanel Grid.Row="11" Grid.Column="4" Margin="2,0" Orientation="Vertical">
+                            <Button Margin="0,0,0,2" Padding="4,2" x:Name="bt_ManualLoad" Click="bt_ManualLoad_Click">装货</Button>
+                            <Button Padding="4,2" x:Name="bt_ManualUnload" Click="bt_ManualUnload_Click">卸货</Button>
+                        </StackPanel>
+
+                        <Button Grid.Row="12" Grid.Column="0" Grid.ColumnSpan="2" Margin="2,0" x:Name="bt_SaveCargoConfig" Click="bt_SaveCargoConfig_Click">保存配置</Button>
+                        <Button Grid.Row="12" Grid.Column="2" Grid.ColumnSpan="3" Margin="2,0" x:Name="bt_LoadCargoConfig" Click="bt_LoadCargoConfig_Click">重新加载</Button>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="力矩信息" x:Name="gb_ArmControl" IsEnabled="False">
+                    <Grid rubyer:GridHelper.RowDefinitions="Auto,Auto" rubyer:GridHelper.ColumnDefinitions="*">
+                        <Grid rubyer:GridHelper.RowDefinitions="26,26,26,26,26,26"
+                              rubyer:GridHelper.ColumnDefinitions="28,*,40">
+                            <TextBlock Grid.Row="0" Grid.Column="0">J1</TextBlock>
+                            <ProgressBar Grid.Row="0" Grid.Column="1" Margin="0,10,0,0" Value="0" Minimum="0" Maximum="2000" x:Name="pb_pJ1"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" x:Name="tb_pJ1">0</TextBlock>
+                            <TextBlock Grid.Row="1" Grid.Column="0">J2</TextBlock>
+                            <ProgressBar Grid.Row="1" Grid.Column="1" Margin="0,10,0,0" Value="0" Minimum="0" Maximum="2000" x:Name="pb_pJ2"/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" x:Name="tb_pJ2">0</TextBlock>
+                            <TextBlock Grid.Row="2" Grid.Column="0">J3</TextBlock>
+                            <ProgressBar Grid.Row="2" Grid.Column="1" Margin="0,10,0,0" Value="0" Minimum="0" Maximum="2000" x:Name="pb_pJ3"/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" x:Name="tb_pJ3">0</TextBlock>
+                            <TextBlock Grid.Row="3" Grid.Column="0">J4</TextBlock>
+                            <ProgressBar Grid.Row="3" Grid.Column="1" Margin="0,10,0,0" Value="0" Minimum="0" Maximum="2000" x:Name="pb_pJ4"/>
+                            <TextBlock Grid.Row="3" Grid.Column="2" x:Name="tb_pJ4">0</TextBlock>
+                            <TextBlock Grid.Row="4" Grid.Column="0">J5</TextBlock>
+                            <ProgressBar Grid.Row="4" Grid.Column="1" Margin="0,10,0,0" Value="0" Minimum="0" Maximum="2000" x:Name="pb_pJ5"/>
+                            <TextBlock Grid.Row="4" Grid.Column="2" x:Name="tb_pJ5">0</TextBlock>
+                            <TextBlock Grid.Row="5" Grid.Column="0">J6</TextBlock>
+                            <ProgressBar Grid.Row="5" Grid.Column="1" Margin="0,10,0,0" Value="0" Minimum="0" Maximum="2000" x:Name="pb_pJ6"/>
+                            <TextBlock Grid.Row="5" Grid.Column="2" x:Name="tb_pJ6">0</TextBlock>
+                        </Grid>
+                        <Grid Grid.Row="1" Margin="0,6,0,0" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <Button Margin="2,0" x:Name="bt_ArmLoopStart" Click="bt_ArmLoopStart_Click">开始监视</Button>
+                            <Button Grid.Column="1" Margin="2,0" x:Name="bt_ArmLoopEnd" IsEnabled="False" Click="bt_ArmLoopEnd_Click">停止监视</Button>
+                        </Grid>
+                    </Grid>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 右侧：连接 / 决策层 / 操作 -->
+        <ScrollViewer Grid.Column="2" Margin="4,6,8,6" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <GroupBox Header="机器手连接" Margin="0,0,0,6">
+                    <Grid rubyer:GridHelper.RowDefinitions="Auto,Auto,Auto" rubyer:GridHelper.ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Margin="2" VerticalAlignment="Center">端口</TextBlock>
+                        <ComboBox Grid.Row="0" Grid.Column="1" Margin="2" x:Name="cb_ComList"/>
+
+                        <Button Grid.Row="1" Grid.Column="0" Margin="2,4,2,2" x:Name="bt_Link" Click="bt_Link_Click">手动连接</Button>
+                        <Button Grid.Row="1" Grid.Column="1" Margin="2,4,2,2" x:Name="bt_LinkAuto" Click="bt_LinkAuto_Click">自动连接</Button>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="2" VerticalAlignment="Center">状态</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="2" x:Name="tb_ArmStatus"
+                                   FontSize="14" FontWeight="Bold" VerticalAlignment="Center"
+                                   Foreground="Gray" Text="未连接"/>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="决策层通信" Margin="0,0,0,6">
+                    <Grid rubyer:GridHelper.RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                          rubyer:GridHelper.ColumnDefinitions="72,*">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Margin="2,1" VerticalAlignment="Top">管道</TextBlock>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Margin="2,1" x:Name="tb_PipeName"
+                                   Text="\\.\pipe\agv_arm_pipe" TextWrapping="Wrap" FontSize="11"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="2,1" VerticalAlignment="Center">服务</TextBlock>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="2,1" x:Name="tb_PipeServerStatus" Foreground="LimeGreen" Text="监听中"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="2,1" VerticalAlignment="Center">决策层</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="2,1" x:Name="tb_PipeClientStatus" Foreground="Gray" Text="未连接"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="2,1" VerticalAlignment="Center">任务</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="2,1" x:Name="tb_PipeWorkStatus" Foreground="Gray" Text="空闲" TextWrapping="Wrap"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Margin="2,1" VerticalAlignment="Top">指令</TextBlock>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Margin="2,1" x:Name="tb_PipeLastCommand" Text="-" TextWrapping="Wrap" FontSize="11"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Margin="2,1" VerticalAlignment="Top">结果</TextBlock>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Margin="2,1" x:Name="tb_PipeLastResult" Text="-" TextWrapping="Wrap" FontSize="11"/>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="操作">
+                    <Grid rubyer:GridHelper.RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,8,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                        <Grid Grid.Row="0" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">X</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_X" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="1" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">Y</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Y" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="2" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">Z</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Z" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="3" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">A</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_A" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="4" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">B</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_B" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="5" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">C</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_C" Text="0"/>
+                        </Grid>
+
+                        <Grid Grid.Row="7" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">J1</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Joint1" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="8" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">J2</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Joint2" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="9" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">J3</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Joint3" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="10" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">J4</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Joint4" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="11" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">J5</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Joint5" Text="0"/>
+                        </Grid>
+                        <Grid Grid.Row="12" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <TextBlock Margin="2,0" VerticalAlignment="Center">J6</TextBlock>
+                            <TextBox Grid.Column="1" Margin="2,0" x:Name="tb_Joint6" Text="0"/>
+                        </Grid>
+
+                        <Grid Grid.Row="13" Margin="0,2,0,0" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <Button Margin="2,0" x:Name="bt_Home" Click="bt_Home_Click">回零</Button>
+                            <Button Grid.Column="1" Margin="2,0" x:Name="bt_StopNow" Click="bt_StopNow_Click">立即停止</Button>
+                        </Grid>
+                        <Grid Grid.Row="14" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <Button Margin="2,0" x:Name="bt_FK" Click="bt_FK_Click">正解</Button>
+                            <Button Grid.Column="1" Margin="2,0" x:Name="bt_IK" Click="bt_IK_Click">逆解</Button>
+                        </Grid>
+                        <Grid Grid.Row="15" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <Button Margin="2,0" x:Name="bt_MoveJoint" Click="bt_MoveJoint_Click">运动</Button>
+                            <Button Grid.Column="1" Margin="2,0" x:Name="bt_GetCurrentAngle" Click="bt_GetCurrentAngle_Click">读位置</Button>
+                        </Grid>
+                        <Grid Grid.Row="16" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <Button Margin="2,0" x:Name="bt_MoveArmHand" Click="bt_MoveArmHand_Click">手动模式</Button>
+                            <Button Grid.Column="1" Margin="2,0" x:Name="bt_AddRecord" Click="bt_AddRecord_Click">记录点</Button>
+                        </Grid>
+                        <Grid Grid.Row="17" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <Button Margin="2,0" x:Name="bt_MoveLoop" Click="bt_MoveLoop_Click">循环</Button>
+                            <Button Grid.Column="1" Margin="2,0" x:Name="bt_MoveLoopStop" Click="bt_MoveLoopStop_Click">停循环</Button>
+                        </Grid>
+                        <Grid Grid.Row="18" rubyer:GridHelper.ColumnDefinitions="*,*">
+                            <Button Margin="2,0" x:Name="bt_DeleteRecord" Click="bt_DeleteRecord_Click">删记录</Button>
+                        </Grid>
+                    </Grid>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</rubyer:RubyerWindow>

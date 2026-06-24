@@ -1,0 +1,565 @@
+﻿using BigProject.Devices.Arm.CtrlStep;
+using BigProject.Devices.Arm.Kinematic.Models;
+using BigProject.Devices.Arm.Kinematic;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using BigProject.Serials;
+using BigProject.Logger;
+using System.IO.Ports;
+using System.Collections;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using Masuit.Tools;
+using BigProject.Config;
+using System.Windows.Markup;
+
+namespace BigProject.Devices.Arm
+{
+    public class ArmContrl
+    {
+        //角度转换成脉冲 3200 为 360°
+        public const double DEG_TO_PULSE = 8.888888889;
+
+        public Dof6kinematic dof6Solver;
+        public CtrlStepMotor[] motorJ;
+        public Joint6D_t lastJoints;
+        public Joint6D_t currentJoints;
+        public Pose6D_t currentPose6D;
+        private ArmSerial serialControl;
+
+        public static event Action<double?, double?, double?, double?, double?, double?> UpdateJointAngle;
+        public ArmContrl(ConfigEntity armConfig,ArmSerial armSerial)
+        {
+            dof6Solver = new Dof6kinematic(armConfig);
+            motorJ = new CtrlStepMotor[6] {
+                new CtrlStepMotor(){ AngleLimitMin =-90.1,AngleLimitMax = 90.1,Reduction = armConfig.ReductionJ1}
+                ,new CtrlStepMotor(){ AngleLimitMin = -90.1,AngleLimitMax = 90.1 , Direction =1, OffsetAngle = -90,Reduction = armConfig.ReductionJ2 }
+                ,new CtrlStepMotor(){ AngleLimitMin = -0.1,AngleLimitMax= 180.1,OffsetAngle = 180 , Direction = 1,Reduction = armConfig.ReductionJ3}
+                ,new CtrlStepMotor(){ AngleLimitMin = -0.1,AngleLimitMax = 180.1 , Direction =1,Reduction = armConfig.ReductionJ4}
+                ,new CtrlStepMotor(){ AngleLimitMin = -90.1 , AngleLimitMax = 90.1,Reduction = armConfig.ReductionJ5 , Direction =1}
+                ,new CtrlStepMotor() { AngleLimitMin = -180.1,AngleLimitMax = 180.1,Reduction = armConfig.ReductionJ6}
+            };
+            serialControl = armSerial;
+            currentPose6D = new Pose6D_t();
+            currentJoints = new Joint6D_t();
+            lastJoints = Joint6D_t.defult;
+
+        }
+        //轴移动默认速度
+        private double jointSpeed = 100;
+
+        /// <summary>
+        /// 最近一次 MoveJoints 估算的运动时长（毫秒）。
+        /// </summary>
+        public int LastMoveEstimatedMs { get; private set; }
+
+        /// <summary>
+        /// 最近一次 MoveJoints 变化最大的关节索引（0-5）。
+        /// </summary>
+        public int LastMoveDominantJoint { get; private set; }
+
+        /// <summary>
+        /// 根据角度移动轴
+        /// </summary>
+        /// <param name="_j1">第1轴角度</param>
+        /// <param name="_j2">第2轴角度</param>
+        /// <param name="_j3">第3轴角度</param>
+        /// <param name="_j4">第4轴角度</param>
+        /// <param name="_j5">第5轴角度</param>
+        /// <param name="_j6">第6轴角度</param>
+        /// <returns></returns>
+        public bool MoveJ(double _j1, double _j2, double _j3, double _j4, double _j5, double _j6)
+        {
+            currentJoints = new Joint6D_t(_j1, _j2, _j3, _j4, _j5, _j6);
+            dof6Solver.SolveFK(currentJoints, currentPose6D);
+
+            bool valid = true;
+            for (int j = 0; j < 6; j++)
+            {
+                if (currentJoints.a[j] > motorJ[j].AngleLimitMax ||
+                    currentJoints.a[j] < motorJ[j].AngleLimitMin)
+                {
+                    valid = false;
+                    Log.Info($"角度{j+1} 限制为{motorJ[j].AngleLimitMin}到{motorJ[j].AngleLimitMax} 当前为{currentJoints.a[j]}");
+                }
+                    
+
+            }
+
+            if (valid)
+            {
+                var angleList = (currentJoints - lastJoints).a;
+                var maxAngle = AbsMaxOf6(angleList, out int _index);
+                if (maxAngle == 0) return true;
+                //这里的时间计算忽略加速度影响
+                double time = maxAngle * (double)(motorJ[_index].Reduction) / jointSpeed;
+                for (int j = 0; j < 6; j++)
+                {
+                    motorJ[j].Speed = (int)Math.Abs(angleList[j] * 1.0f* motorJ[j].Reduction / time);
+                }
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 根据最后轴顶点位置移动轴
+        /// </summary>
+        /// <param name="_x">x坐标</param>
+        /// <param name="_y">y坐标</param>
+        /// <param name="_z">z坐标</param>
+        /// <param name="_a">旋转角 a</param>
+        /// <param name="_b">旋转角 b</param>
+        /// <param name="_c">旋转角 c</param>
+        /// <returns></returns>
+        public bool MoveL(double _x, double _y, double _z, double _a, double _b, double _c)
+        {
+            currentPose6D = new Pose6D_t(_x, _y, _z, _a, _b, _c);
+            IKSolves_t ikSolves = new IKSolves_t();
+            
+            dof6Solver.SolveIK(currentPose6D, lastJoints, out ikSolves);
+
+            bool[] valid = new bool[8];
+            int validCnt = 0;
+
+            for (int i = 0; i < 8; i++)
+            {
+                valid[i] = true;
+
+                for (int j = 0; j < 6; j++)
+                {
+                    if (ikSolves.config[i].a[j] > motorJ[j].AngleLimitMax ||
+                        ikSolves.config[i].a[j] < motorJ[j].AngleLimitMin)
+                    {
+                        valid[i] = false;
+                        continue;
+                    }
+                }
+
+                if (valid[i]) validCnt++;
+            }
+
+            if (validCnt > 0)
+            {
+                double min = 1000;
+                int indexConfig = 0, indexJoint = 0;
+                for (int i = 0; i < 8; i++)
+                {
+                    if (valid[i])
+                    {
+                        //for (int j = 0; j < 6; j++)
+                        //    lastJoints.a[j] = ikSolves.config[i].a[j];
+                        Joint6D_t tmp = currentJoints - lastJoints;
+                        double maxAngle = AbsMaxOf6(tmp.a, out indexJoint);
+                        if (maxAngle < min)
+                        {
+                            min = maxAngle;
+                            indexConfig = i;
+                        }
+                    }
+                }
+
+                return MoveJ(ikSolves.config[indexConfig].a[0], ikSolves.config[indexConfig].a[1],
+                             ikSolves.config[indexConfig].a[2], ikSolves.config[indexConfig].a[3],
+                             ikSolves.config[indexConfig].a[4], ikSolves.config[indexConfig].a[5]);
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 驱动电机回零操作
+        /// </summary>
+        public void Homing()
+        {
+            serialControl.EditZeroParams(addr: 5, direction: 1);
+            Thread.Sleep(50);
+            serialControl.Zero(5);
+            Thread.Sleep(50);
+
+            serialControl.EditZeroParams(addr: 4, direction: 0);
+            Thread.Sleep(50);
+            serialControl.Zero(4);
+            Thread.Sleep(50);
+
+            serialControl.EditZeroParams(addr: 3, direction: 0);
+            Thread.Sleep(50);
+            serialControl.Zero(3);
+            Thread.Sleep(50);
+
+            serialControl.EditZeroParams(addr: 1, direction: 1);
+            Thread.Sleep(50);
+            serialControl.Zero(1);
+            Thread.Sleep(50);
+
+            serialControl.EditZeroParams(addr: 2, direction: 0);
+            Thread.Sleep(50);
+            serialControl.Zero(2);
+            Thread.Sleep(50);
+
+            //第6轴回零
+            //Arm6Homing();
+
+            lastJoints = Joint6D_t.defult;
+        }
+
+        /// <summary>
+        /// 驱动电机移动轴
+        /// </summary>
+        /// <param name="stepMotor"></param>
+        public void MoveJoints()    
+        {
+            LastMoveEstimatedMs = 0;
+            bool valid = true;
+            for (int j = 0; j < 6; j++)
+            {
+                if (currentJoints.a[j] > motorJ[j].AngleLimitMax ||
+                    currentJoints.a[j] < motorJ[j].AngleLimitMin)
+                {
+                    valid = false;
+                    Log.Info($"角度{j + 1} 限制为{motorJ[j].AngleLimitMin}到{motorJ[j].AngleLimitMax} 当前为{currentJoints.a[j]},无法移动");
+                    return;
+                }
+
+
+            }
+
+            if (valid)
+            {
+                //计算每轴速度
+                var angleList = (currentJoints - lastJoints).a;
+                
+                var maxAngle = AbsMaxOf6(angleList, out int _index);
+                if (maxAngle == 0) return;
+                LastMoveDominantJoint = _index;
+                //这里的时间计算忽略加速度影响
+                double time = maxAngle * (double)(motorJ[_index].Reduction) / jointSpeed;
+                LastMoveEstimatedMs = (int)Math.Ceiling(time * 1000);
+                for (int j = 0; j < 6; j++)
+                {
+                    motorJ[j].Speed = (int)Math.Abs(angleList[j] * 1.0f * motorJ[j].Reduction / time);
+                }
+            }
+
+            //发送移动轴命令
+            for (int i = 0; i < motorJ.Length; i++)
+            {
+                Log.Info($"轴{i + 1}速度为{motorJ[i].Speed}");
+                var pulse = (int)Math.Abs(((currentJoints.a[i] - Joint6D_t.defult.a[i]) * DEG_TO_PULSE * motorJ[i].Reduction));
+                int direction = motorJ[i].Direction;
+                serialControl.LocationControl(i+1, direction, (int)(motorJ[i].Speed), (int)motorJ[i].Acceleration, pulse,RelativeOrAbsolute.Absolute);
+                Thread.Sleep(50);
+            }
+
+            serialControl.CallMotion();
+            lastJoints = currentJoints.DeepClone();
+        }
+
+        private double AbsMaxOf6(double[] targetJointsTmp, out int _index)
+        {
+            var max = Math.Abs(targetJointsTmp[0]);
+            _index = 0;
+            for (int i = 1; i < targetJointsTmp.Length; i++)
+            {
+                if (Math.Abs(targetJointsTmp[i]) >  max)
+                {
+                    max = Math.Abs(targetJointsTmp[i]);
+                    _index = i;
+                }
+            }
+            return max;
+        }
+
+        /// <summary>
+        /// 立即停止
+        /// </summary>
+        public void ArmStopNow()
+        {
+            byte[] send = new byte[4] { 0x00, 0xFE, 0x98, 0x00 };
+            var re =serialControl.ReBuildData(send);
+            serialControl.SendMsgForResult(re, out byte[] resMsg);
+        }
+
+        /// <summary>
+        /// 设置当前位置为 0 位
+        /// </summary>
+        public void SendThisIsZero(int addr)
+        {
+            //01 0A 6D 6B
+            byte[] send = new byte[3] { 0x00, 0x0A ,0x6D };
+            send[0] = (byte)addr;
+            var re = serialControl.ReBuildData(send);
+            serialControl.SendMsgForResult(re, out byte[] resMsg);
+        }
+
+        /// <summary>
+        /// 获取电机当前角度位置
+        /// </summary>
+        /// <param name="addr">地址</param>
+        /// <returns></returns>
+        public bool GetCurrentAngle(
+            int addr,
+            CtrlStepMotor ctrlStep,
+            out double angle,
+            bool logResult = true,
+            int maxAttempts = 3,
+            int readTimeoutMs = 0)
+        {
+            angle = 0;
+            byte[] data = new byte[2] { (byte)addr, 0x36 };
+            var re = serialControl.ReBuildData(data);
+            byte[] result = null;
+            int attempts = Math.Max(1, maxAttempts);
+            for (int attempt = 0; attempt < attempts; attempt++)
+            {
+                if (attempt > 0)
+                {
+                    Thread.Sleep(20);
+                }
+
+                bool ok = readTimeoutMs > 0
+                    ? serialControl.SendMsgForResult(re, out result, readTimeoutMs)
+                    : serialControl.SendMsgForResult(re, out result);
+                if (!ok)
+                {
+                    continue;
+                }
+                if (result == null || result.Length < 7)
+                {
+                    continue;
+                }
+                if (result[0] != addr)
+                {
+                    continue;
+                }
+                if (result[1] == 0x00 && result[2] == 0xee)
+                {
+                    continue;
+                }
+                break;
+            }
+            if (result == null || result.Length < 7 || result[0] != addr
+                || (result[1] == 0x00 && result[2] == 0xee))
+            {
+                if (logResult)
+                {
+                    var hex = result == null ? "无回包" : BitConverter.ToString(result);
+                    Log.Info($"电机{addr}角度获取失败，回包: {hex}");
+                }
+                return false;
+            }
+
+            byte[] byteArray = { result[6], result[5], result[4], result[3] };
+            if (ctrlStep.Direction == 0)
+            {
+                angle = BitConverter.ToInt32(byteArray, 0)* 360.0 / 65536;
+            }
+            else
+            {
+                angle = BitConverter.ToInt32(byteArray, 0) * -360.0 / 65536;
+            }
+            if (logResult)
+            {
+                Log.Info($"获取角度{addr}__{angle}");
+            }
+            //默认的0 位，加上电机读数偏移量
+            if(addr==3)
+            {
+                ctrlStep.CurrentAngle = Joint6D_t.defult.a[addr - 1] - Math.Abs(angle / ctrlStep.Reduction);
+            }
+            else if(ctrlStep.Direction==1)
+            {
+                ctrlStep.CurrentAngle = Joint6D_t.defult.a[addr - 1] - (angle / ctrlStep.Reduction);
+            }
+            else
+            {
+                ctrlStep.CurrentAngle = Joint6D_t.defult.a[addr - 1] + (angle / ctrlStep.Reduction);
+            }
+            angle = ctrlStep.CurrentAngle;
+            return true;
+        }
+        /// <summary>
+        /// 设置电机使能状态
+        /// </summary>
+        /// <param name="status"></param>
+        /// <returns></returns>
+        public bool SetIfEnable(int addr,bool status)
+        {
+            int flag = status ? 1 : 0;
+            byte[] data = new byte[5] { (byte)addr, 0xF3, 0xAB, (byte)flag, 0x00 };
+            var re = serialControl.ReBuildData(data);
+            var res = serialControl.SendMsgForResult(re, out byte[] result);
+            if (!res)
+            {
+                return false;
+            }
+            if (result[1] == 0xF3 && result[2] == 0xee)
+            {
+                //返回错误
+                return false;
+            }
+            if (result[1] == 0xF3 && result[2] == 0xE2)
+            {
+                Log.Info($"电机{addr}使能条件不满足");
+                return false;
+            }
+            return true;
+        }
+
+        //机械臂是否已经移动完成（0x3A 状态标志 bit1=到位）
+        public bool IsMoveOver()
+        {
+            var idle = ReadIsIdle();
+            return idle == true;
+        }
+
+        /// <summary>
+        /// 等待运动结束：关节角停止变化约 150ms 即认为到位。
+        /// </summary>
+        public bool WaitForMotionComplete()
+        {
+            if (LastMoveEstimatedMs <= 0)
+            {
+                return true;
+            }
+
+            Thread.Sleep(80);
+            var start = DateTime.UtcNow;
+            int safetyCapMs = Math.Min(LastMoveEstimatedMs + 1200, 120000);
+            int settleMs = 150;
+            const int pollTimeoutMs = 120;
+            int joint = Math.Max(0, Math.Min(LastMoveDominantJoint, 5));
+
+            double? prevAngle = null;
+            bool seenChange = false;
+            DateTime lastChangeTime = DateTime.MinValue;
+
+            while ((DateTime.UtcNow - start).TotalMilliseconds < safetyCapMs)
+            {
+                var elapsedMs = (DateTime.UtcNow - start).TotalMilliseconds;
+
+                if (GetCurrentAngle(joint + 1, motorJ[joint], out double current,
+                    logResult: false, maxAttempts: 1, readTimeoutMs: pollTimeoutMs))
+                {
+                    if (prevAngle.HasValue)
+                    {
+                        double delta = Math.Abs(current - prevAngle.Value);
+                        if (delta > 0.3)
+                        {
+                            seenChange = true;
+                            lastChangeTime = DateTime.UtcNow;
+                        }
+                        else if (seenChange && lastChangeTime != DateTime.MinValue
+                                 && (DateTime.UtcNow - lastChangeTime).TotalMilliseconds >= settleMs)
+                        {
+                            return true;
+                        }
+                    }
+
+                    prevAngle = current;
+                }
+
+                if (!seenChange && elapsedMs >= LastMoveEstimatedMs * 0.85)
+                {
+                    return true;
+                }
+
+                Thread.Sleep(40);
+            }
+
+            Log.Info("[ARM] 等待运动完成超时，按已结束处理");
+            return true;
+        }
+
+        /// <summary>
+        /// 读取机械臂是否空闲。true=空闲，false=工作中，null=读取失败
+        /// </summary>
+        public bool? ReadIsIdle()
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                byte[] data = new byte[2] { (byte)(i + 1), 0x3A };
+                var re = serialControl.ReBuildData(data);
+                var res = serialControl.SendMsgForResult(re, out byte[] result);
+                if (!res || result.Length < 3)
+                {
+                    return null;
+                }
+                if (result[1] == 0x00 && result[2] == 0xEE)
+                {
+                    return null;
+                }
+                if (result[1] != 0x3A)
+                {
+                    return null;
+                }
+                if ((result[2] & 0x02) == 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        //读取电机力矩值
+        private bool ReadPower(int addr,out double outValue)
+        {
+            outValue = 0;
+            try
+            {
+                //读取状态信息 07 43 7A 6B
+                byte[] send = new byte[3] { (byte)addr, 0x43, 0x7A };
+                var re = serialControl.ReBuildData(send);
+                var result = serialControl.SendMsgForResult(re, out byte[] resMsg);
+                if (!result)
+                {
+                    return false;
+                }
+                if (resMsg[1] == 0x00 && resMsg[2] == 0xEE)
+                {
+                    return false;
+                }
+                if (resMsg[0] != addr)
+                {
+                    return false;
+                }
+
+                //根据实时相电流计算力矩大小
+                var Power = (resMsg[6] * 256 + resMsg[7]) * 1.0;
+                Power = Math.Round(Power, 2);
+                if (Power == 0)
+                {
+                    return false;
+                }
+                outValue = Power;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
+                return false;
+            }
+
+        }
+
+        public void ReadSixPower()
+        {
+            double?[] values = new double?[6];
+            for (int i = 1; i <= 6; i++)
+            {
+                if (ReadPower(i, out double vaule))
+                {
+                    values[i - 1] = vaule;
+                }
+                else
+                {
+                    values[i - 1] = null;
+                }
+            }
+            UpdateJointAngle?.Invoke(values[0], values[1], values[2], values[3], values[4], values[5]);
+        }
+    }
+}

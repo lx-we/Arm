@@ -1,0 +1,36 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "E:\\Engineer\\decide\\jyker-master\\HMIcode\\BigProject\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|e:\\engineer\\decide\\jyker-master\\hmicode\\bigproject\\bigproject\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{48561C10-E60B-4D23-B641-99981A988A98}|BigProject\\BigProject.csproj|solutionrelative:bigproject\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "MainWindow.xaml",
+              "DocumentMoniker": "E:\\Engineer\\decide\\jyker-master\\HMIcode\\BigProject\\BigProject\\MainWindow.xaml",
+              "RelativeDocumentMoniker": "BigProject\\MainWindow.xaml",
+              "ToolTip": "E:\\Engineer\\decide\\jyker-master\\HMIcode\\BigProject\\BigProject\\MainWindow.xaml",
+              "RelativeToolTip": "BigProject\\MainWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-06-11T02:40:08.961Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

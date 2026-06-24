@@ -1,0 +1,1101 @@
+﻿using BigProject.Devices.Arm.Kinematic.Models;
+using BigProject.Logger;
+using BigProject.Serials;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Ports;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Forms;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
+using System.Windows.Shapes;
+using System.Xml.Linq;
+using System.Management;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
+using System.Text.RegularExpressions;
+using System.Drawing;
+using BigProject.CargoTask;
+using BigProject.Communication;
+using BigProject.Devices.Arm;
+using Rubyer;
+using BigProject.JointMoveRecord;
+using System.Collections.ObjectModel;
+using BigProject.Dialogs;
+using Newtonsoft.Json.Linq;
+
+namespace BigProject
+{
+    /// <summary>
+    /// MainWindow.xaml 的交互逻辑
+    /// </summary>
+    public partial class MainWindow : Rubyer.RubyerWindow
+    {
+        WindowState ws;
+        WindowState wsl;
+        NotifyIcon notifyIcon;
+
+        public MainWindow()
+        {
+            InitializeComponent();
+
+            this.Loaded += MainWindow_Loaded;
+
+            icon();
+
+            //ContextMenuStrip
+            contextMenu();
+
+            //保证窗体显示在上方。
+            wsl = WindowState;
+        }
+
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            Rubyer.ThemeManager.SwitchThemeMode(Rubyer.Enums.ThemeMode.Dark);
+            this.StateChanged += MainWindow_StateChanged;
+            //添加日志输出
+            Log.MessageEvent += Log_MessageEvent;
+
+            //添加夹爪信息回调
+            ArmClaw.UpdateClawMsgEvent+= UpdateClawMsg;
+
+            //添加机械臂信息回调
+            ArmContrl.UpdateJointAngle += UpdateArmMsg;
+
+            //赋值当前角度位置
+            //MainWindow_UpdateJointAngle();
+
+            //加载串口列表
+            LoadComList();
+            //设置按钮不可按
+            SetButtomState(true);
+            //加载记录列表
+            LoadJointRecords();
+            //加载货物调度配置
+            LoadCargoConfigToUI();
+            InitPipeStatusUI();
+            
+        }
+
+        private void InitPipeStatusUI()
+        {
+            tb_PipeName.Text = $@"\\.\pipe\{ArmPipeServer.DefaultPipeName}";
+            tb_PipeServerStatus.Text = "监听中";
+            tb_PipeServerStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
+            UpdatePipeClientStatus(false);
+            UpdatePipeWorkStatus("空闲", System.Windows.Media.Brushes.Gray);
+
+            App.Core.ArmPipe.ClientConnectedChanged += OnPipeClientConnectedChanged;
+            App.Core.ArmPipe.WorkStarted += OnPipeWorkStarted;
+            App.Core.ArmPipe.WorkFinished += OnPipeWorkFinished;
+        }
+
+        private void OnPipeClientConnectedChanged(bool connected)
+        {
+            Dispatcher.BeginInvoke(new Action(() => UpdatePipeClientStatus(connected)));
+        }
+
+        private void UpdatePipeClientStatus(bool connected)
+        {
+            if (connected)
+            {
+                tb_PipeClientStatus.Text = "已连接";
+                tb_PipeClientStatus.Foreground = System.Windows.Media.Brushes.LimeGreen;
+            }
+            else
+            {
+                tb_PipeClientStatus.Text = "未连接";
+                tb_PipeClientStatus.Foreground = System.Windows.Media.Brushes.Gray;
+            }
+        }
+
+        private void OnPipeWorkStarted(string cmd, string doneCmd, int agvId, int taskId, int cargoNum)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var workText = cmd == "LOAD"
+                    ? $"装货中 AGV{agvId} 任务{taskId} 数量{cargoNum}"
+                    : $"卸货中 AGV{agvId} 任务{taskId} 数量{cargoNum}";
+                UpdatePipeWorkStatus(workText, System.Windows.Media.Brushes.Orange);
+                tb_PipeLastCommand.Text = $"{cmd} {agvId} {taskId} {cargoNum}";
+                SetManualWorkButtonsEnabled(false);
+                BeginArmMotionTracking();
+            }));
+        }
+
+        private void OnPipeWorkFinished(string resultLine, bool success, string message)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                tb_PipeLastResult.Text = resultLine;
+                tb_PipeLastResult.Foreground = success
+                    ? System.Windows.Media.Brushes.LimeGreen
+                    : System.Windows.Media.Brushes.OrangeRed;
+                UpdatePipeWorkStatus(success ? "空闲" : "失败", success
+                    ? System.Windows.Media.Brushes.Gray
+                    : System.Windows.Media.Brushes.OrangeRed);
+                SetManualWorkButtonsEnabled(true);
+                EndArmMotionTracking();
+                Log.Info($"[ARM] {resultLine} ({message})");
+            }));
+        }
+
+        private void UpdatePipeWorkStatus(string text, System.Windows.Media.Brush color)
+        {
+            tb_PipeWorkStatus.Text = text;
+            tb_PipeWorkStatus.Foreground = color;
+        }
+
+        private void SetManualWorkButtonsEnabled(bool enabled)
+        {
+            bt_ManualLoad.IsEnabled = enabled;
+            bt_ManualUnload.IsEnabled = enabled;
+        }
+
+        private bool TryReadManualTaskParams(out int agvId, out int taskId, out int cargoNum)
+        {
+            agvId = taskId = cargoNum = 0;
+            if (!int.TryParse(tb_ManualAgvId.Text, out agvId) || agvId <= 0)
+            {
+                MessageBoxR.Show("请输入有效的 AGV 编号（1-3）。");
+                return false;
+            }
+            if (!int.TryParse(tb_ManualTaskId.Text, out taskId) || taskId <= 0)
+            {
+                MessageBoxR.Show("请输入有效的任务编号。");
+                return false;
+            }
+            if (!int.TryParse(tb_ManualCargoNum.Text, out cargoNum) || cargoNum <= 0)
+            {
+                MessageBoxR.Show("请输入有效的货物数量。");
+                return false;
+            }
+            return true;
+        }
+
+        private void RunManualCargoWork(string cmd)
+        {
+            if (!TryReadManualTaskParams(out int agvId, out int taskId, out int cargoNum))
+            {
+                return;
+            }
+
+            App.Core.CargoTask = ReadCargoConfigFromUI();
+            SetManualWorkButtonsEnabled(false);
+            Task.Run(() =>
+            {
+                App.Core.ArmPipe.RunManualWork(cmd, agvId, taskId, cargoNum, out string message);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!App.Core.ArmPipe.IsBusy)
+                    {
+                        SetManualWorkButtonsEnabled(true);
+                    }
+                }));
+            });
+        }
+
+        private void bt_ManualLoad_Click(object sender, RoutedEventArgs e)
+        {
+            RunManualCargoWork("LOAD");
+        }
+
+        private void bt_ManualUnload_Click(object sender, RoutedEventArgs e)
+        {
+            RunManualCargoWork("UNLOAD");
+        }
+
+        #region 机械臂控制
+        bool loopReadArmStatus = false;
+        private volatile bool _armMotionActive;
+
+        private void BeginArmMotionTracking()
+        {
+            _armMotionActive = true;
+            SetArmStatusOnUi("工作中", System.Windows.Media.Brushes.Orange);
+        }
+
+        private void EndArmMotionTracking()
+        {
+            _armMotionActive = false;
+            if (Dispatcher.CheckAccess())
+            {
+                SetArmStatusDisplay("空闲", System.Windows.Media.Brushes.LimeGreen);
+            }
+            else
+            {
+                Dispatcher.Invoke(new Action(() =>
+                    SetArmStatusDisplay("空闲", System.Windows.Media.Brushes.LimeGreen)));
+            }
+        }
+
+        private void SetArmStatusOnUi(string status, System.Windows.Media.Brush color)
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                SetArmStatusDisplay(status, color);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() => SetArmStatusDisplay(status, color)));
+        }
+
+        /// <summary>
+        /// 等待 MoveJoints 触发的运动完成。
+        /// </summary>
+        private void WaitUntilArmMotionComplete()
+        {
+            App.Core?.ArmContrl?.WaitForMotionComplete();
+        }
+
+        private void StartArmStatusMonitor()
+        {
+            if (loopReadArmStatus)
+            {
+                return;
+            }
+
+            loopReadArmStatus = true;
+            SetArmStatusOnUi("空闲", System.Windows.Media.Brushes.LimeGreen);
+        }
+
+        private void StopArmStatusMonitor()
+        {
+            loopReadArmStatus = false;
+            SetArmStatusOnUi("未连接", System.Windows.Media.Brushes.Gray);
+        }
+
+        private void SetArmStatusDisplay(string status, System.Windows.Media.Brush color)
+        {
+            tb_ArmStatus.Text = status;
+            tb_ArmStatus.Foreground = color;
+            tb_ArmStatusBanner.Text = $"机械臂：{status}";
+            tb_ArmStatusBanner.Foreground = color;
+        }
+
+        //加载记录列表
+        private void LoadJointRecords()
+        {
+            App.Core.JointRecords = JointRecordRes.Read();
+            dg_JointRecord.ItemsSource = App.Core.JointRecords;
+        } 
+
+
+        //设置手动移动机械臂
+        private void bt_MoveArmHand_Click(object sender, RoutedEventArgs e)
+        {
+            this.Dispatcher.Invoke(() => {
+                var motorJ = App.Core.ArmContrl.motorJ;
+                for (int i = 0; i < motorJ.Length; i++)
+                {
+                    if (!App.Core.ArmContrl.SetIfEnable(i+1,false))
+                    {
+                        Log.Info($"电机{i + 1}设置失能状态失败");
+                    }
+                }
+            });
+            
+        }
+        //记录机械臂当前位置
+        private void bt_AddRecord_Click(object sender, RoutedEventArgs e)
+        {
+            MainWindow_UpdateJointAngle();
+            this.Dispatcher.Invoke(() => {
+                var pose6 = App.Core.ArmContrl.currentPose6D;
+                var joint = App.Core.ArmContrl.currentJoints;
+                App.Core.JointRecords.Add(new JointMoveRecord.JointRecordModel
+                {
+                    AddTime = DateTime.Now,
+                    J1 = Math.Round(joint.a[0], 2),
+                    J2 = Math.Round(joint.a[1], 2),
+                    J3 = Math.Round(joint.a[2], 2),
+                    J4 = Math.Round(joint.a[3], 2),
+                    J5 = Math.Round(joint.a[4], 2),
+                    J6 = Math.Round(joint.a[5], 2),
+
+                    X = Math.Round(pose6.X, 2),
+                    Y = Math.Round(pose6.Y, 2),
+                    Z = Math.Round(pose6.Z, 2),
+                    A = Math.Round(pose6.A, 2),
+                    B = Math.Round(pose6.B, 2),
+                    C = Math.Round(pose6.C, 2),
+                });
+                dg_JointRecord.ItemsSource = App.Core.JointRecords;
+                JointRecordRes.Write(App.Core.JointRecords);
+            });
+            
+        }
+        //循环运动机械臂
+        CancellationTokenSource cts;
+        private void bt_MoveLoop_Click(object sender, RoutedEventArgs e)
+        {
+            var motorJ = App.Core.ArmContrl.motorJ;
+            for (int i = 0; i < motorJ.Length; i++)
+            {
+                if (!App.Core.ArmContrl.SetIfEnable(i + 1, true))
+                {
+                    Log.Info($"电机{i + 1}设置使能状态失败");
+                }
+            }
+            if (!App.Core.ArmContrl.SetIfEnable(7, true))
+            {
+                Log.Info($"夹爪设置使能状态失败");
+            }
+            cts = new CancellationTokenSource();
+            var runCicleToken = cts.Token;
+            Task.Run(() => {
+                BeginArmMotionTracking();
+                try
+                {
+                while (true)
+                {
+                    Thread.Sleep(50);
+                    foreach (var rec in App.Core.JointRecords)
+                    {
+                        if(runCicleToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+                        this.Dispatcher.Invoke(() =>
+                        {
+                            dg_JointRecord.SelectedItem = rec;
+                        });
+                        App.Core.ArmContrl.currentJoints.a[0] = rec.J1;
+                        App.Core.ArmContrl.currentJoints.a[1] = rec.J2;
+                        App.Core.ArmContrl.currentJoints.a[2] = rec.J3;
+                        App.Core.ArmContrl.currentJoints.a[3] = rec.J4;
+                        App.Core.ArmContrl.currentJoints.a[4] = rec.J5;
+                        App.Core.ArmContrl.currentJoints.a[5] = rec.J6;
+                        App.Core.ArmContrl.MoveJoints();
+                        App.Core.ArmContrl.WaitForMotionComplete();
+                    }
+                }
+                }
+                finally
+                {
+                    EndArmMotionTracking();
+                }
+            }, runCicleToken);
+        }
+        //停止循环
+        private void bt_MoveLoopStop_Click(object sender, RoutedEventArgs e)
+        {
+            cts.Cancel();
+        }
+        //删除记录
+        private void bt_DeleteRecord_Click(object sender, RoutedEventArgs e)
+        {
+            if(dg_JointRecord.SelectedItem==null)
+            {
+                MessageBoxR.Show("请先选择一条记录.");
+                return;
+            }
+            var rec = dg_JointRecord.SelectedItem as JointRecordModel;
+            App.Core.JointRecords.Remove(rec);
+            dg_JointRecord.ItemsSource = App.Core.JointRecords;
+            JointRecordRes.Write(App.Core.JointRecords);
+        }
+        //设置按钮状态
+        private void SetButtomState(bool State = false)
+        {
+            this.Dispatcher.Invoke(() =>
+            {
+                bt_Home.IsEnabled = State;
+                bt_StopNow.IsEnabled = State;
+                bt_FK.IsEnabled = State;
+                bt_IK.IsEnabled = State;
+                bt_MoveJoint.IsEnabled = State;
+                bt_GetCurrentAngle.IsEnabled = State;
+                bt_AddRecord.IsEnabled = State;
+                bt_MoveArmHand.IsEnabled = State;
+                bt_MoveLoop.IsEnabled = State;
+                bt_MoveLoopStop.IsEnabled = State;
+                bt_DeleteRecord.IsEnabled = State;
+                
+            });
+        }
+        //加载串口列表
+        private List<string> LoadComList()
+        {
+            // 查询所有串口设备
+            ManagementObjectSearcher searcher = new ManagementObjectSearcher(
+                "SELECT * FROM Win32_PnPEntity WHERE Caption LIKE '%(COM%)' AND Caption LIKE '%USB%'");
+            var list = new List<string>();
+            this.Dispatcher.Invoke(() => {
+                cb_ComList.Items.Clear();
+                foreach (var port in searcher.Get())
+                {
+                    string caption = port["Caption"]?.ToString() ?? "无描述";
+                    Match match = Regex.Match(caption, @"COM\d+");
+                    if (match.Success)
+                    {
+                        string comPortName = match.Value; // 提取匹配到的 COM 名称
+                        cb_ComList.Items.Add(comPortName);
+                        list.Add(comPortName);
+                    }
+                    
+                }
+            });
+            
+            return list;
+        }
+
+        //自动连接
+        private void bt_LinkAuto_Click(object sender, RoutedEventArgs e)
+        {
+            var list = LoadComList();
+            //连接
+
+            Task.Run(() => {
+                //加载串口列表
+                try
+                {
+                    foreach (var item in list)
+                    {
+                        Log.Info($"尝试连接{item}...");
+                        var result = App.Core.InitArm(item);
+                        if (result)
+                        {
+                            //查看是否存在机械臂
+                            var armConnected = false;
+                            var re = App.Core.ArmSerial.ReBuildData(new byte[2] { 0x01, 0x33 });
+                            var res = App.Core.ArmSerial.SendMsgForResult(re, out byte[] resMsg);
+                            if (res&&resMsg[0] > 0)
+                            {
+                                Log.Info($"{item}连接成功，找到jyker机械臂");
+                                this.Dispatcher.Invoke(() => {
+                                    cb_ComList.SelectedItem = item;
+                                    bt_LinkAuto.IsEnabled = false;
+                                    cb_ComList.IsEnabled = false;
+                                    gb_ArmControl.IsEnabled = true;
+                                    bt_Link.Content = "断开连接";
+                                    SetButtomState(true);
+                                    armConnected = true;
+                                    StartArmStatusMonitor();
+                                    //读取位置信息并赋值
+                                    MainWindow_UpdateJointAngle();
+                                });
+                            }
+                            Thread.Sleep(100);
+                            //夹爪连接
+                            var clawConnected = false;
+                            var re1 = App.Core.ArmSerial.ReBuildData(new byte[2] { 0x07, 0x33 });
+                            var resClaw = App.Core.ArmSerial.SendMsgForResult(re1, out byte[] resMsgClaw);
+                            if (resClaw && resMsgClaw[0] > 0)
+                            {
+                                clawConnected = true;
+                                Log.Info($"{item}连接成功，找到jyker夹爪");
+                                this.Dispatcher.Invoke(() => {
+                                    gb_ClawControl.IsEnabled = true;
+                                });
+                            }
+                            if (result&&!armConnected&&!clawConnected)
+                            {
+                                App.Core.ArmDispose();
+                            }
+                        }
+
+
+
+                    } 
+                }
+                catch (Exception ex)
+                {
+                    Log.Info(ex.ToString());
+                }
+            });
+
+
+        }
+        //手动连接
+        private void bt_Link_Click(object sender, RoutedEventArgs e)
+        {
+            if (bt_Link.Content.ToString() == "断开连接")
+            {
+                bt_LinkAuto.IsEnabled = true;
+                cb_ComList.IsEnabled = true;
+                bt_Link.Content = "手动连接";
+                StopArmStatusMonitor();
+                App.Core.ArmDispose();
+                SetButtomState(false);
+                gb_ClawControl.IsEnabled = false;
+            }
+            else
+            {
+                var name = cb_ComList.SelectedItem + "";
+                var result = App.Core.InitArm(name);
+                if (result)
+                {
+                    bt_LinkAuto.IsEnabled = false;
+                    cb_ComList.IsEnabled = false;
+                    bt_Link.Content = "断开连接";
+                    SetButtomState(true);
+                    StartArmStatusMonitor();
+                    //读取位置信息并赋值
+                    MainWindow_UpdateJointAngle();
+                    gb_ClawControl.IsEnabled = true;
+                    gb_ArmControl.IsEnabled = true;
+                }
+            }
+        }
+        //获取当前电机目标位置
+        private void bt_GetCurrentAngle_Click(object sender, RoutedEventArgs e)
+        {
+            MainWindow_UpdateJointAngle();
+        }
+
+        //获取当前角度位置
+        private void MainWindow_UpdateJointAngle()
+        {
+            this.Dispatcher.Invoke(() => {
+                var motorJ = App.Core.ArmContrl.motorJ;
+                for (int i = 0; i < motorJ.Length; i++)
+                {
+                    if(!App.Core.ArmContrl.GetCurrentAngle(i + 1, motorJ[i],out double angle))
+                    {
+                        Log.Info($"电机{i + 1}角度获取失败");
+                    }
+                }
+
+                var a1 = motorJ[0].CurrentAngle;
+                var a2 = motorJ[1].CurrentAngle;
+                var a3 = motorJ[2].CurrentAngle;
+                var a4 = motorJ[3].CurrentAngle;
+                var a5 = motorJ[4].CurrentAngle;
+                var a6 = motorJ[5].CurrentAngle;
+
+                App.Core.ArmContrl.MoveJ(a1, a2, a3, a4, a5, a6);
+                var pose6 = App.Core.ArmContrl.currentPose6D;
+                var joint = App.Core.ArmContrl.currentJoints;
+
+                tb_X.Text = Math.Round(pose6.X, 2) + "";
+                tb_Y.Text = Math.Round(pose6.Y, 2) + "";
+                tb_Z.Text = Math.Round(pose6.Z, 2) + "";
+                tb_A.Text = Math.Round(pose6.A, 2) + "";
+                tb_B.Text = Math.Round(pose6.B, 2) + "";
+                tb_C.Text = Math.Round(pose6.C, 2) + "";
+
+                tb_Joint1.Text = Math.Round(joint.a[0], 2) + "";
+                tb_Joint2.Text = Math.Round(joint.a[1], 2) + "";
+                tb_Joint3.Text = Math.Round(joint.a[2], 2) + "";
+                tb_Joint4.Text = Math.Round(joint.a[3], 2) + "";
+                tb_Joint5.Text = Math.Round(joint.a[4], 2) + "";
+                tb_Joint6.Text = Math.Round(joint.a[5], 2) + "";
+            });
+
+
+        }
+
+        //让机械臂运动
+        private void bt_MoveJoint_Click(object sender, RoutedEventArgs e)
+        {
+            Task.Run(() =>
+            {
+                BeginArmMotionTracking();
+                try
+                {
+                    App.Core.ArmContrl.MoveJoints();
+                    WaitUntilArmMotionComplete();
+                }
+                finally
+                {
+                    EndArmMotionTracking();
+                }
+            });
+        }
+
+        //逆解计算
+        private void bt_IK_Click(object sender, RoutedEventArgs e)
+        {
+            double.TryParse(tb_X.Text, out double x);
+            double.TryParse(tb_Y.Text, out double y);
+            double.TryParse(tb_Z.Text, out double z);
+            double.TryParse(tb_A.Text, out double a);
+            double.TryParse(tb_B.Text, out double b);
+            double.TryParse(tb_C.Text, out double c);
+
+            var res =App.Core.ArmContrl.MoveL(x, y, z, a, b, c);
+            if(!res)
+            {
+                Log.Info("逆解无解");
+            }
+            var joint = App.Core.ArmContrl.currentJoints;
+
+            tb_Joint1.Text = Math.Round(joint.a[0],2) + "";
+            tb_Joint2.Text = Math.Round(joint.a[1],2) + "";
+            tb_Joint3.Text = Math.Round(joint.a[2],2) + "";
+            tb_Joint4.Text = Math.Round(joint.a[3],2) + "";
+            tb_Joint5.Text = Math.Round(joint.a[4],2) + "";
+            tb_Joint6.Text = Math.Round(joint.a[5], 2) + "";
+        }
+        //正解计算
+        private void bt_FK_Click(object sender, RoutedEventArgs e)
+        {
+            double.TryParse(tb_Joint1.Text, out double a1);
+            double.TryParse(tb_Joint2.Text, out double a2);
+            double.TryParse(tb_Joint3.Text, out double a3);
+            double.TryParse(tb_Joint4.Text, out double a4);
+            double.TryParse(tb_Joint5.Text, out double a5);
+            double.TryParse(tb_Joint6.Text, out double a6);
+
+             
+            bool isSole = App.Core.ArmContrl.MoveJ(a1, a2, a3, a4, a5, a6);
+            if(!isSole)
+            {
+                Log.Info("角度限制无法解除");
+            }
+            var pose6 = App.Core.ArmContrl.currentPose6D;
+
+            tb_X.Text = Math.Round(pose6.X, 2) + "";
+            tb_Y.Text = Math.Round(pose6.Y, 2) + "";
+            tb_Z.Text = Math.Round(pose6.Z, 2) + "";
+            tb_A.Text = Math.Round(pose6.A, 2) + "";
+            tb_B.Text = Math.Round(pose6.B, 2) + "";
+            tb_C.Text = Math.Round(pose6.C, 2) + "";
+        }
+
+        //立即停止
+        private void bt_StopNow_Click(object sender, RoutedEventArgs e)
+        {
+            App.Core.ArmContrl.ArmStopNow();
+            EndArmMotionTracking();
+        }
+
+        //回零操作
+        private async void bt_Home_Click(object sender, RoutedEventArgs e)
+        {
+            var result = await MessageBoxR.Show("注意！非金属减速机版本请手动回零，否则容易损坏减速器！确定要回零吗?",
+                "确认操作",
+                MessageBoxButton.OKCancel,
+                MessageBoxType.Question);
+            if(result == MessageBoxResult.OK)
+            {
+                BeginArmMotionTracking();
+                try
+                {
+                App.Core.ArmContrl.Homing();
+
+                //回零之后更新正逆解参数
+                App.Core.ArmContrl.MoveJ(0, -90, 180, 0, 90, 0);
+                var pose6 = App.Core.ArmContrl.currentPose6D;
+                var joint = App.Core.ArmContrl.currentJoints;
+
+                tb_X.Text = Math.Round(pose6.X, 2) + "";
+                tb_Y.Text = Math.Round(pose6.Y, 2) + "";
+                tb_Z.Text = Math.Round(pose6.Z, 2) + "";
+                tb_A.Text = Math.Round(pose6.A, 2) + "";
+                tb_B.Text = Math.Round(pose6.B, 2) + "";
+                tb_C.Text = Math.Round(pose6.C, 2) + "";
+
+                tb_Joint1.Text = Math.Round(joint.a[0], 2) + "";
+                tb_Joint2.Text = Math.Round(joint.a[1], 2) + "";
+                tb_Joint3.Text = Math.Round(joint.a[2], 2) + "";
+                tb_Joint4.Text = Math.Round(joint.a[3], 2) + "";
+                tb_Joint5.Text = Math.Round(joint.a[4], 2) + "";
+                tb_Joint6.Text = Math.Round(joint.a[5], 2) + "";
+                }
+                finally
+                {
+                    EndArmMotionTracking();
+                }
+            }
+            
+        }
+        #endregion
+
+        #region 货物调度
+        private void LoadCargoConfigToUI()
+        {
+            var config = App.Core.CargoTask ?? new CargoTaskConfig();
+            tb_CargoCount.Text = config.CargoCount.ToString();
+            tb_StackX.Text = config.StackX.ToString();
+            tb_StackY.Text = config.StackY.ToString();
+            tb_StackZ.Text = config.StackZ.ToString();
+            tb_Car1X.Text = config.Car1X.ToString();
+            tb_Car1Y.Text = config.Car1Y.ToString();
+            tb_Car1Z.Text = config.Car1Z.ToString();
+            tb_Car2X.Text = config.Car2X.ToString();
+            tb_Car2Y.Text = config.Car2Y.ToString();
+            tb_Car2Z.Text = config.Car2Z.ToString();
+            tb_Car3X.Text = config.Car3X.ToString();
+            tb_Car3Y.Text = config.Car3Y.ToString();
+            tb_Car3Z.Text = config.Car3Z.ToString();
+        }
+
+        private CargoTaskConfig ReadCargoConfigFromUI()
+        {
+            int.TryParse(tb_CargoCount.Text, out int cargoCount);
+            double.TryParse(tb_StackX.Text, out double stackX);
+            double.TryParse(tb_StackY.Text, out double stackY);
+            double.TryParse(tb_StackZ.Text, out double stackZ);
+            double.TryParse(tb_Car1X.Text, out double car1X);
+            double.TryParse(tb_Car1Y.Text, out double car1Y);
+            double.TryParse(tb_Car1Z.Text, out double car1Z);
+            double.TryParse(tb_Car2X.Text, out double car2X);
+            double.TryParse(tb_Car2Y.Text, out double car2Y);
+            double.TryParse(tb_Car2Z.Text, out double car2Z);
+            double.TryParse(tb_Car3X.Text, out double car3X);
+            double.TryParse(tb_Car3Y.Text, out double car3Y);
+            double.TryParse(tb_Car3Z.Text, out double car3Z);
+
+            return new CargoTaskConfig
+            {
+                CargoCount = cargoCount,
+                StackX = stackX,
+                StackY = stackY,
+                StackZ = stackZ,
+                Car1X = car1X,
+                Car1Y = car1Y,
+                Car1Z = car1Z,
+                Car2X = car2X,
+                Car2Y = car2Y,
+                Car2Z = car2Z,
+                Car3X = car3X,
+                Car3Y = car3Y,
+                Car3Z = car3Z
+            };
+        }
+
+        private void FillCoordFromCurrentPose(Action<double, double, double> setCoord)
+        {
+            if (App.Core?.ArmContrl == null)
+            {
+                MessageBoxR.Show("请先连接机械臂。");
+                return;
+            }
+            MainWindow_UpdateJointAngle();
+            var pose = App.Core.ArmContrl.currentPose6D;
+            setCoord(Math.Round(pose.X, 2), Math.Round(pose.Y, 2), Math.Round(pose.Z, 2));
+        }
+
+        private void bt_LoadStackPos_Click(object sender, RoutedEventArgs e)
+        {
+            FillCoordFromCurrentPose((x, y, z) =>
+            {
+                tb_StackX.Text = x.ToString();
+                tb_StackY.Text = y.ToString();
+                tb_StackZ.Text = z.ToString();
+            });
+        }
+
+        private void bt_LoadCar1Pos_Click(object sender, RoutedEventArgs e)
+        {
+            FillCoordFromCurrentPose((x, y, z) =>
+            {
+                tb_Car1X.Text = x.ToString();
+                tb_Car1Y.Text = y.ToString();
+                tb_Car1Z.Text = z.ToString();
+            });
+        }
+
+        private void bt_LoadCar2Pos_Click(object sender, RoutedEventArgs e)
+        {
+            FillCoordFromCurrentPose((x, y, z) =>
+            {
+                tb_Car2X.Text = x.ToString();
+                tb_Car2Y.Text = y.ToString();
+                tb_Car2Z.Text = z.ToString();
+            });
+        }
+
+        private void bt_LoadCar3Pos_Click(object sender, RoutedEventArgs e)
+        {
+            FillCoordFromCurrentPose((x, y, z) =>
+            {
+                tb_Car3X.Text = x.ToString();
+                tb_Car3Y.Text = y.ToString();
+                tb_Car3Z.Text = z.ToString();
+            });
+        }
+
+        private void bt_SaveCargoConfig_Click(object sender, RoutedEventArgs e)
+        {
+            App.Core.CargoTask = ReadCargoConfigFromUI();
+            CargoTaskRes.Write(App.Core.CargoTask);
+            Log.Info($"货物调度已保存：数量{App.Core.CargoTask.CargoCount}，堆货点({App.Core.CargoTask.StackX},{App.Core.CargoTask.StackY},{App.Core.CargoTask.StackZ})，AGV1({App.Core.CargoTask.Car1X},{App.Core.CargoTask.Car1Y},{App.Core.CargoTask.Car1Z})");
+        }
+
+        private void bt_LoadCargoConfig_Click(object sender, RoutedEventArgs e)
+        {
+            App.Core.CargoTask = CargoTaskRes.Read();
+            LoadCargoConfigToUI();
+            Log.Info("货物调度配置已重新加载。");
+        }
+        #endregion
+
+        #region 夹爪控制
+        bool LoopReadClawAngle = false;
+
+        private void bt_ClawHome_Click(object sender, RoutedEventArgs e)
+        {
+            App.Core.ArmClaw.Home();
+        }
+        //关闭堵转保护
+        private void bt_ClawStop_Click(object sender, RoutedEventArgs e)
+        {
+            App.Core.ArmClaw.Stop();
+        }
+        //开启循环读取信息
+        private void bt_ClawLoopStart_Click(object sender, RoutedEventArgs e)
+        {
+            LoopReadClawAngle = true;
+            bt_ClawLoopStart.IsEnabled = false;
+            bt_ClawLoopEnd.IsEnabled = true;
+            Task.Run(() => {
+                
+                while (LoopReadClawAngle)
+                {
+                    App.Core.ArmClaw.ReadAngle();
+                    Thread.Sleep(50);
+                }
+               
+            });
+        }
+        //关闭循环读取角度信息
+        private void bt_ClawLoopEnd_Click(object sender, RoutedEventArgs e)
+        {
+            LoopReadClawAngle = false;
+            bt_ClawLoopStart.IsEnabled = true;
+            bt_ClawLoopEnd.IsEnabled = false;
+        }
+        //设置夹爪角度
+        private void pg_ClawAngle_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!gb_ClawControl.IsEnabled)
+            {
+                return;
+            }
+            var value = e.NewValue;
+            Task.Run(() =>
+            {
+                App.Core.ArmClaw.SetAngle(value);
+            });
+        }
+        //更新夹爪的信息
+        private void UpdateClawMsg(double angle,double length,double power)
+        {
+            this.Dispatcher.Invoke(() => {
+                try
+                {
+                    //pg_ClawAngle.Value = angle;
+                    pg_ClawLength.Value = length;
+                    pg_ClawPower.Value = power;
+                    tb_ClawAngle.Text = $"{angle}°";
+                    tb_ClawLength.Text = $"{length}mm";
+                    tb_ClawPower.Text = $"{power}";
+                }
+                catch (Exception e)
+                {
+                    Log.Error(e);
+                }
+               
+            });
+        }
+
+        private void pg_ClawAngle_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+        }
+        #endregion
+
+
+        #region 托盘右键菜单
+
+        private void MainWindow_StateChanged(object sender, EventArgs e)
+        {
+            ws = this.WindowState;
+            if (ws == WindowState.Minimized)
+            {
+                this.Hide();
+            }
+        }
+
+        private void icon()
+        {
+            string path = System.IO.Path.GetFullPath(@"Static\icon.ico");
+            if (File.Exists(path))
+            {
+                this.notifyIcon = new NotifyIcon();
+                this.notifyIcon.BalloonTipText = "Jyker"; //设置程序启动时显示的文本
+                this.notifyIcon.Text = "Jyker";//最小化到托盘时，鼠标点击时显示的文本
+                System.Drawing.Icon icon = new System.Drawing.Icon(path);//程序图标
+                this.notifyIcon.Icon = icon;
+                this.notifyIcon.Visible = true;
+                notifyIcon.MouseDoubleClick += OnNotifyIconDoubleClick;
+
+            }
+
+        }
+
+        private void OnNotifyIconDoubleClick(object sender, EventArgs e)
+        {
+            this.Show();
+            WindowState = wsl;
+        }
+        private void contextMenu()
+        {
+            ContextMenuStrip cms = new ContextMenuStrip();
+
+            //关联 NotifyIcon 和 ContextMenuStrip
+            notifyIcon.ContextMenuStrip = cms;
+
+            System.Windows.Forms.ToolStripMenuItem exitMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            exitMenuItem.Text = "退出";
+            exitMenuItem.Click += new EventHandler(exitMenuItem_Click);
+
+            System.Windows.Forms.ToolStripMenuItem hideMenumItem = new System.Windows.Forms.ToolStripMenuItem();
+            hideMenumItem.Text = "隐藏";
+            hideMenumItem.Click += new EventHandler(hideMenumItem_Click);
+
+            System.Windows.Forms.ToolStripMenuItem showMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            showMenuItem.Text = "显示";
+            showMenuItem.Click += new EventHandler(showMenuItem_Click);
+
+            cms.Items.Add(exitMenuItem);
+            cms.Items.Add(hideMenumItem);
+            cms.Items.Add(showMenuItem);
+        }
+
+        private void exitMenuItem_Click(object sender, EventArgs e)
+        {
+            notifyIcon.Visible = false;
+
+            System.Windows.Application.Current.Shutdown();
+        }
+
+        private void hideMenumItem_Click(object sender, EventArgs e)
+        {
+            this.Hide();
+        }
+
+        private void showMenuItem_Click(object sender, EventArgs e)
+        {
+            this.Show();
+            this.Activate();
+        }
+        #endregion
+
+        #region 日志
+        int richTextLine = 0;
+        private void Log_MessageEvent(string text)
+        {
+            try
+            {
+                var str = $"{DateTime.Now.ToString("HH:mm:ss")}:{text}\n";
+                this.Dispatcher.Invoke(() =>
+                {
+                    tbLog.AppendText(str);
+                    tbLog.ScrollToEnd();
+                    if (richTextLine >= 3000)
+                    {
+                        tbLog.Text = string.Empty;
+                        richTextLine = 0;
+                    }
+                    richTextLine++;
+                });
+            }
+            catch (Exception)
+            {
+
+            }
+           
+        }
+
+
+
+
+
+
+        #endregion
+
+        #region 菜单按钮
+        //系统设置
+        private void mt_Config_Click(object sender, RoutedEventArgs e)
+        {
+            ConfigDialog configDialog = new ConfigDialog();
+            configDialog.ShowDialog();
+        }
+        #endregion
+
+        #region 机械臂力矩监控
+        bool LoopReadArmAngle;
+        private void bt_ArmLoopStart_Click(object sender, RoutedEventArgs e)
+        {
+            LoopReadArmAngle = true;
+            bt_ArmLoopStart.IsEnabled = false;
+            bt_ArmLoopEnd.IsEnabled = true;
+            Task.Run(() => {
+
+                while (LoopReadArmAngle)
+                {
+                    App.Core.ArmContrl.ReadSixPower();
+                    Thread.Sleep(50);
+                }
+
+            });
+        }
+
+        private void bt_ArmLoopEnd_Click(object sender, RoutedEventArgs e)
+        {
+            LoopReadArmAngle = false;
+            bt_ArmLoopStart.IsEnabled = true;
+            bt_ArmLoopEnd.IsEnabled = false;
+        }
+
+        private void UpdateArmMsg(double? J1,double? J2, double? J3, double? J4, double? J5, double? J6)
+        {
+            this.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if(J1!=null)
+                    {
+                        pb_pJ1.Value = J1.Value;
+                        tb_pJ1.Text = Math.Round(J1.Value, 2) + "";
+                    };
+                    if (J2 != null)
+                    {
+                        pb_pJ2.Value = J2.Value;
+                        tb_pJ2.Text = Math.Round(J2.Value, 2) + "";
+                    };
+                    if (J3 != null)
+                    {
+                        pb_pJ3.Value = J3.Value;
+                        tb_pJ3.Text = Math.Round(J3.Value, 2) + "";
+                    };
+                    if (J4 != null)
+                    {
+                        pb_pJ4.Value = J4.Value;
+                        tb_pJ4.Text = Math.Round(J4.Value, 2) + "";
+                    };
+                    if (J5 != null)
+                    {
+                        pb_pJ5.Value = J5.Value;
+                        tb_pJ5.Text = Math.Round(J5.Value, 2) + "";
+                    };
+                    if (J6 != null)
+                    {
+                        pb_pJ6.Value = J6.Value;
+                        tb_pJ6.Text = Math.Round(J6.Value, 2) + "";
+                    };
+                }
+                catch (Exception e)
+                {
+                    Log.Error(e);
+                }
+               
+            }));
+        }
+        #endregion
+
+    }
+}
